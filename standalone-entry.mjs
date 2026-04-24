@@ -77212,15 +77212,16 @@ if (!process.env.DATABASE_URL) {
     "DATABASE_URL must be set. Did you forget to provision a database?"
   );
 }
+var _dbUrl=process.env.DATABASE_URL||"";
 var pool = new Pool3({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === "production" || process.env.PGSSLMODE === "require" || (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("localhost") && !process.env.DATABASE_URL.includes("127.0.0.1")) ? { rejectUnauthorized: false } : false,
+  connectionString: _dbUrl,
   max: 50,
   // up to 50 simultaneous DB connections (default: 10)
   idleTimeoutMillis: 3e4,
   // release idle connections after 30 s
-  connectionTimeoutMillis: 5e3
+  connectionTimeoutMillis: 5e3,
   // fail fast if DB is unreachable
+  ssl: (!_dbUrl.includes("localhost") && !_dbUrl.includes("127.0.0.1") && (process.env.NODE_ENV==="production" || !_dbUrl.includes("localhost"))) ? { rejectUnauthorized: false } : undefined
 });
 var db = drizzle(pool, { schema: schema_exports });
 
@@ -84507,8 +84508,8 @@ router2.post("/auth/login", authRateLimit, async (req, res) => {
     const rows = await db.select().from(usersTable).where(eq(usersTable.employeeId, employeeId));
     user = rows[0];
   } catch (dbErr) {
-    console.error('[LOGIN DB ERROR]', dbErr?.message || dbErr);
-    res.status(500).json({ error: 'Database error: ' + (dbErr?.message || 'unknown') });
+    console.error("[LOGIN DB ERROR]", dbErr?.message || dbErr);
+    res.status(500).json({ error: "Database error: " + (dbErr?.message || "unknown") });
     return;
   }
   if (!user) {
@@ -84575,7 +84576,15 @@ function formatUser(user) {
     createdAt: user.createdAt.toISOString()
   };
 }
-router3.get("/users", requireAuth, requireRole("admin", "staff"), async (_req, res) => {
+router3.get("/users", requireAuth, async (req, res) => {
+  const caller = req.user;
+  if (caller.role === "employee") {
+    const users = await db.select().from(usersTable).where(eq(usersTable.employeeId, caller.employeeId));
+    return res.json(users.map(formatUser));
+  }
+  if (caller.role !== "admin" && caller.role !== "staff") {
+    return res.status(403).json({ error: "Forbidden" });
+  }
   const users = await db.select().from(usersTable).orderBy(usersTable.name);
   res.json(users.map(formatUser));
 });
@@ -86133,7 +86142,7 @@ redirectApp.use((req, res) => {
   res.redirect(301, `https://${host}:${HTTPS_PORT}${req.url}`);
 });
 function getOrCreateCert(localIp) {
-  if (process.env.DISABLE_HTTPS === "1" || process.env.REPLIT_DEPLOYMENT || process.env.REPL_ID) return null;
+  if (process.env.DISABLE_HTTPS === "1" || process.env.REPL_ID) return null;
   const certFile = path2.join(__dirname, "ssl-cert.pem");
   const keyFile = path2.join(__dirname, "ssl-key.pem");
   const trustFlag = path2.join(__dirname, "ssl-cert-trusted.flag");
