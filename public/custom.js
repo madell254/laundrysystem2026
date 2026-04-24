@@ -1,5 +1,5 @@
 /* ─────────────────────────────────────────────────────────────────────────
-   Al Bateen Beach Palace — Laundry Management System  v3.0.1
+   Al Bateen Beach Palace — Laundry Management System  v3.0.2
    ─ Remarks modal when staff marks laundry "Ready"
    ─ Delivery Location (optional free-text) appended below the submit form
    ─ Clickable stat cards (admin/staff) → records modal: year/month filter + PDF
@@ -540,6 +540,8 @@
         '<p style="margin-top:18px;font-size:10.5px;color:#94A3B8;text-align:center;">Al Bateen Beach Palace Hotel — Laundry Management System</p>' +
         '</div>';
       window.print();
+      /* Remove the print-only div so it doesn't remain visible on screen */
+      setTimeout(function() { if (pr && pr.parentNode) pr.parentNode.removeChild(pr); }, 500);
     }
 
     render();
@@ -549,16 +551,22 @@
   function wireStatCards() {
     var role = getRole();
     if (!role || (role !== 'admin' && role !== 'staff')) return;
+    /* Never process elements inside an open modal overlay */
+    if (document.querySelector('.lsc-ov')) return;
 
     var all = Array.prototype.slice.call(document.querySelectorAll('[class]'));
     all.forEach(function(el) {
       if (statCards.has(el)) return;
+      /* Skip anything inside our own overlays */
+      if (el.closest('.lsc-ov')) return;
       var txt = el.textContent || '';
       if (!/\b(today|this week|this month|this year)\b/i.test(txt)) return;
       if (el.children.length > 8 || txt.length > 300) return;
       var card = el.closest('[class*="card"]') || el.closest('[class*="Card"]') ||
                  el.closest('[class*="rounded"]') || (el.parentElement && el.parentElement.parentElement);
       if (!card || statCards.has(card)) return;
+      /* Skip the card if it is (or is inside) our overlay */
+      if (card.closest('.lsc-ov') || card.classList.contains('lsc-ov')) return;
       var lbl = (txt.match(/\b(today|this week|this month|this year)\b/i) || ['this month'])[0];
       statCards.add(el);
       statCards.add(card);
@@ -586,5 +594,5 @@
     wireStatCards();
   }).observe(document.body, { childList: true, subtree: true });
 
-  console.log('[LSC v3.0.1] Loaded ✓');
+  console.log('[LSC v3.0.2] Loaded ✓');
 })();
