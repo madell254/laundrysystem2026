@@ -1,8 +1,10 @@
 /* ─────────────────────────────────────────────────────────────────────────
-   Al Bateen Beach Palace — Laundry Management System  v3.0.2
+   Al Bateen Beach Palace — Laundry Management System  v3.1.1
    ─ Remarks modal when staff marks laundry "Ready"
    ─ Delivery Location (optional free-text) appended below the submit form
    ─ Clickable stat cards (admin/staff) → records modal: year/month filter + PDF
+   ─ Delivery location shown on records list (replaces collection location when set)
+   ─ Stats modal closes on navigation
    ─ Mobile-safe layout
    ───────────────────────────────────────────────────────────────────────── */
 (function () {
@@ -42,7 +44,10 @@
   /* ── Shared state ─────────────────────────────────────────────────────── */
   var deliveryLocation = '';
   var statCards = new WeakSet();
-  var openModal = null; // track the current open overlay element
+  var openModal = null;
+  var dlCache = {};        // recordId → deliveryLocation string
+  var dlTagged = new WeakSet(); // elements already injected with delivery tag
+  var prevPath = location.pathname;
 
   /* ── Styles ───────────────────────────────────────────────────────────── */
   var style = document.createElement('style');
@@ -124,6 +129,10 @@
     '.lsc-s-ready{background:#DCFCE7;color:#15803D;}',
     '.lsc-s-collected{background:#D1FAE5;color:#065F46;}',
     '.lsc-s-cancelled{background:#FEE2E2;color:#991B1B;}',
+    /* Delivery tag on records list */
+    '.lsc-dl-tag{display:inline-flex;align-items:center;gap:3px;',
+    'margin-top:3px;font-size:11px;color:#0F766E;font-weight:600;',
+    'background:#CCFBF1;border-radius:5px;padding:2px 7px;white-space:nowrap;}',
     /* Stat card hover */
     '.lsc-cc{cursor:pointer!important;transition:box-shadow .15s,transform .15s!important;}',
     '.lsc-cc:hover{transform:translateY(-2px)!important;',
@@ -351,7 +360,24 @@
       } catch(_) {}
     }
 
-    return await _origFetch(input, init);
+    var resp = await _origFetch(input, init);
+
+    /* Cache deliveryLocation per recordId for list injection */
+    if (/\/api\/laundry(\?|$)/.test(url) &&
+        (!init || !init.method || init.method === 'GET')) {
+      resp.clone().json().then(function(data) {
+        var recs = data && data.records ? data.records :
+                   (Array.isArray(data) ? data : []);
+        recs.forEach(function(r) {
+          if (r.recordId && r.deliveryLocation) {
+            dlCache[r.recordId] = r.deliveryLocation;
+          }
+        });
+        schedDeliveryInject();
+      }).catch(function(){});
+    }
+
+    return resp;
   };
 
   /* ════════════════════════════════════════════════════════════════════════
@@ -547,6 +573,190 @@
     render();
   }
 
+  /* ════════════════════════════════════════════════════════════════════════
+     FEATURE 5 — Show delivery location on records list
+     Reads the table header to find the LOCATION column index, then for
+     every row whose record-ID cell has a cached delivery location, appends
+     a teal "🚚 Deliver to:" tag inside that same cell.
+     ════════════════════════════════════════════════════════════════════════ */
+  var dlInjectTmr = 0;
+  function schedDeliveryInject() {
+    clearTimeout(dlInjectTmr);
+    dlInjectTmr = setTimeout(injectDeliveryOnList, 350);
+  }
+
+  /* Find the 0-based column index of the LOCATION header in a <thead> */
+  function getLocationColIndex(table) {
+    var ths = Array.prototype.slice.call(table.querySelectorAll('thead th, thead td'));
+    for (var i = 0; i < ths.length; i++) {
+      var t = (ths[i].textContent || '').trim().toUpperCase();
+      if (t === 'LOCATION' || t === 'LOCATION / DELIVER TO') return i;
+    }
+    return -1;
+  }
+
+  function injectDeliveryOnList() {
+    if (!Object.keys(dlCache).length) return;
+
+    /* Find all <table> elements on the page (outside our modal) */
+    var tables = Array.prototype.slice.call(document.querySelectorAll('table'));
+    tables.forEach(function(table) {
+      if (table.closest('.lsc-ov')) return;
+
+      var locIdx = getLocationColIndex(table);
+      if (locIdx < 0) return;          /* no LOCATION header found */
+
+      var rows = Array.prototype.slice.call(table.querySelectorAll('tbody tr'));
+      rows.forEach(function(row) {
+        /* Find the record-ID cell: a cell whose text matches LDY-... */
+        var cells = Array.prototype.slice.call(row.querySelectorAll('td'));
+        if (!cells.length) return;
+
+        var recId = null;
+        cells.forEach(function(td) {
+          if (recId) return;
+          var spans = Array.prototype.slice.call(td.querySelectorAll('span, div, p'));
+          spans.forEach(function(s) {
+            if (recId) return;
+            var txt = (s.textContent || '').trim();
+            if (/^LDY-\d{6}-\d+$/.test(txt)) recId = txt;
+          });
+          /* Also check the cell itself */
+          if (!recId) {
+            var cellTxt = (td.textContent || '').trim();
+            if (/^LDY-\d{6}-\d+$/.test(cellTxt)) recId = cellTxt;
+          }
+        });
+
+        if (!recId || !dlCache[recId]) return;
+        var dl = dlCache[recId];
+
+        /* Target the LOCATION column cell */
+        var locCell = cells[locIdx];
+        if (!locCell) return;
+        if (dlTagged.has(locCell)) return;
+        dlTagged.add(locCell);
+
+        var tag = document.createElement('div');
+        tag.className = 'lsc-dl-tag';
+        tag.innerHTML = '🚚 ' + esc(dl);
+        locCell.appendChild(tag);
+      });
+    });
+  }
+
+  /* ════════════════════════════════════════════════════════════════════════
+     FEATURE 6 — Admin: Delivery Locations management panel
+     Injected into the admin Settings page. Lets admin add / delete
+     delivery locations which are stored server-side.
+     ════════════════════════════════════════════════════════════════════════ */
+  var dlPanelInjected = false;
+
+  async function injectDlAdminPanel() {
+    if (dlPanelInjected) return;
+    if (getRole() !== 'admin') return;
+
+    /* Only show on Settings-like pages (by URL or by page content) */
+    var path = location.pathname;
+    var isSettingsPage = /settings|admin|config/i.test(path);
+    /* Also detect by looking for typical settings headings */
+    if (!isSettingsPage) {
+      var headings = Array.prototype.slice.call(document.querySelectorAll('h1,h2,h3'));
+      isSettingsPage = headings.some(function(h) {
+        return /setting|admin|config|manage|system/i.test(h.textContent || '');
+      });
+    }
+    if (!isSettingsPage) return;
+
+    /* Look for a scrollable container to append to */
+    var main = document.querySelector('main') ||
+               document.querySelector('[class*="content"]') ||
+               document.querySelector('[class*="main"]') ||
+               document.getElementById('root');
+    if (!main) return;
+
+    /* Don't inject twice */
+    if (document.getElementById('lsc-dl-admin')) return;
+
+    dlPanelInjected = true;
+
+    var panel = document.createElement('div');
+    panel.id = 'lsc-dl-admin';
+    panel.style.cssText = 'margin:24px;background:#fff;border-radius:14px;border:1.5px solid #E2E8F0;overflow:hidden;font-family:system-ui,-apple-system,sans-serif;';
+    panel.innerHTML =
+      '<div style="background:#1E293B;color:#fff;padding:14px 18px;display:flex;align-items:center;gap:10px;">' +
+        '<span style="font-size:16px;">🚚</span>' +
+        '<div>' +
+          '<div style="font-size:14px;font-weight:700;">Delivery Locations</div>' +
+          '<div style="font-size:11px;color:rgba(255,255,255,.65);margin-top:2px;">Manage where laundry can be delivered</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="padding:16px;">' +
+        '<div style="display:flex;gap:8px;margin-bottom:14px;">' +
+          '<input id="lsc-dl-inp" placeholder="e.g. Room 101, Manager Office…" ' +
+            'style="flex:1;border:1.5px solid #CBD5E1;border-radius:10px;padding:9px 13px;font-size:13px;font-family:inherit;outline:none;" />' +
+          '<button id="lsc-dl-add" style="padding:9px 16px;background:#2563EB;color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;">+ Add</button>' +
+        '</div>' +
+        '<div id="lsc-dl-list" style="display:flex;flex-wrap:wrap;gap:8px;min-height:36px;"></div>' +
+      '</div>';
+
+    main.appendChild(panel);
+
+    /* Load and render locations */
+    async function loadLocs() {
+      try {
+        var r = await apiFetch('/api/delivery-locations');
+        var locs = await r.json();
+        var list = document.getElementById('lsc-dl-list');
+        if (!list) return;
+        list.innerHTML = '';
+        if (!locs.length) {
+          list.innerHTML = '<span style="color:#94A3B8;font-size:12px;">No delivery locations yet. Add one above.</span>';
+          return;
+        }
+        locs.forEach(function(loc) {
+          var chip = document.createElement('div');
+          chip.style.cssText = 'display:inline-flex;align-items:center;gap:6px;background:#F1F5F9;border:1px solid #E2E8F0;border-radius:8px;padding:5px 10px;font-size:13px;font-weight:500;color:#1E293B;';
+          chip.innerHTML = '<span>🚚 ' + esc(loc.name) + '</span>';
+          var del = document.createElement('button');
+          del.innerHTML = '&times;';
+          del.title = 'Delete';
+          del.style.cssText = 'background:none;border:none;cursor:pointer;color:#94A3B8;font-size:16px;line-height:1;padding:0 2px;font-weight:700;';
+          del.addEventListener('click', async function() {
+            if (!confirm('Delete "' + loc.name + '"?')) return;
+            await apiFetch('/api/delivery-locations/' + loc.id, { method: 'DELETE' });
+            loadLocs();
+          });
+          chip.appendChild(del);
+          list.appendChild(chip);
+        });
+      } catch(_) {}
+    }
+
+    loadLocs();
+
+    document.getElementById('lsc-dl-add').addEventListener('click', async function() {
+      var inp = document.getElementById('lsc-dl-inp');
+      var name = (inp ? inp.value : '').trim();
+      if (!name) return;
+      inp.disabled = true;
+      try {
+        await apiFetch('/api/delivery-locations', {
+          method: 'POST',
+          body: JSON.stringify({ name: name })
+        });
+        inp.value = '';
+        loadLocs();
+      } catch(_) {}
+      inp.disabled = false;
+    });
+
+    /* Allow Enter key to add */
+    document.getElementById('lsc-dl-inp').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') document.getElementById('lsc-dl-add').click();
+    });
+  }
+
   /* ── Wire stat cards ────────────────────────────────────────────────────── */
   function wireStatCards() {
     var role = getRole();
@@ -581,18 +791,32 @@
      ════════════════════════════════════════════════════════════════════════ */
   setInterval(function() {
     var path = location.pathname;
+
+    /* Close modal and reset injectors when user navigates to a different page */
+    if (path !== prevPath) {
+      if (openModal) closeModal(openModal);
+      prevPath = path;
+      dlTagged = new WeakSet();
+      dlPanelInjected = false;
+    }
+
     if (path.includes('submit')) {
       tryInjectDeliveryField();
     } else {
       deliveryLocation = '';
     }
     wireStatCards();
+    if (Object.keys(dlCache).length) injectDeliveryOnList();
+    injectDlAdminPanel();
   }, 600);
 
   new MutationObserver(function() {
-    if (location.pathname.includes('submit')) tryInjectDeliveryField();
+    var path = location.pathname;
+    if (path.includes('submit')) tryInjectDeliveryField();
     wireStatCards();
+    if (Object.keys(dlCache).length) schedDeliveryInject();
+    injectDlAdminPanel();
   }).observe(document.body, { childList: true, subtree: true });
 
-  console.log('[LSC v3.0.2] Loaded ✓');
+  console.log('[LSC v3.1.1] Loaded ✓');
 })();
