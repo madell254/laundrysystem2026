@@ -86173,8 +86173,26 @@ async function seedIfEmpty() {
 var HTTP_PORT = Number(process.env.PORT ?? 3e3);
 var HTTPS_PORT = Number(process.env.HTTPS_PORT ?? 3443);
 var staticDir = path2.join(__dirname, "public");
+// Always serve sw.js and custom.js fresh — prevent browser/SW caching
+app_default.get("/sw.js", (req, res, next) => {
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  next();
+});
+app_default.get("/custom.js", (req, res, next) => {
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  next();
+});
+app_default.get("/index.html", (req, res, next) => {
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  next();
+});
 app_default.use(import_express13.default.static(staticDir));
-app_default.get(/.*/, (_req, res) => res.sendFile(path2.join(staticDir, "index.html")));
+app_default.get(/.*/, (_req, res) => {
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.sendFile(path2.join(staticDir, "index.html"));
+});
 var redirectApp = (0, import_express13.default)();
 redirectApp.use((req, res) => {
   const host = (req.headers.host ?? "localhost").split(":")[0];
