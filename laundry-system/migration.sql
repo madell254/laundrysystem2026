@@ -93,12 +93,3 @@ ALTER TABLE laundry ADD COLUMN IF NOT EXISTS washing_at TIMESTAMPTZ;
 ALTER TABLE laundry ADD COLUMN IF NOT EXISTS drying_at TIMESTAMPTZ;
 ALTER TABLE laundry ADD COLUMN IF NOT EXISTS ready_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS laundry_cancelled_at_idx ON laundry (cancelled_at);
-
--- v2.7 custom: delivery locations feature
-CREATE TABLE IF NOT EXISTS delivery_locations (
-  id SERIAL PRIMARY KEY,
-  name TEXT NOT NULL UNIQUE,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-ALTER TABLE laundry ADD COLUMN IF NOT EXISTS delivery_location TEXT;
