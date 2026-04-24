@@ -84502,7 +84502,15 @@ router2.post("/auth/login", authRateLimit, async (req, res) => {
     return;
   }
   const { employeeId, password } = parsed.data;
-  const [user] = await db.select().from(usersTable).where(eq(usersTable.employeeId, employeeId));
+  let user;
+  try {
+    const rows = await db.select().from(usersTable).where(eq(usersTable.employeeId, employeeId));
+    user = rows[0];
+  } catch (dbErr) {
+    console.error('[LOGIN DB ERROR]', dbErr?.message || dbErr);
+    res.status(500).json({ error: 'Database error: ' + (dbErr?.message || 'unknown') });
+    return;
+  }
   if (!user) {
     res.status(401).json({ error: "Invalid employee ID or password" });
     return;
