@@ -542,123 +542,135 @@
   }
 
   /* ════════════════════════════════════════════════════════════════════════
-     FEATURE 6 — Admin "Locations" tab (next to Departments)
-     Shown ONLY when the "Locations" or "Departments" area is visible in the
-     admin panel. Uses event delegation to detect admin tab clicks.
+     FEATURE 6 — Admin Location Management
+     Injects a "📍 Locations" button into the admin tab bar (next to
+     Departments). Clicking it opens a modal overlay for adding / deleting
+     the locations that appear in the submit-form dropdown.
      ════════════════════════════════════════════════════════════════════════ */
 
-  var locPanelListenerAdded = false;
-
-  function hideLocAdminPanel() {
-    var p = document.getElementById('lsc-loc-admin');
-    if (p) p.remove();
-  }
-
-  /* Find the content area after the clicked tab button */
-  function findTabContentArea(clickedBtn) {
-    var el = clickedBtn.parentElement;
-    while (el && el !== document.body) {
-      var next = el.nextElementSibling;
-      if (next && next.children.length > 0) return next;
-      el = el.parentElement;
-    }
-    /* Fallback */
-    return document.querySelector('[class*="overflow-y-auto"]') ||
-           document.querySelector('main') ||
-           document.getElementById('root');
-  }
-
-  async function showLocAdminPanel(contentArea) {
-    if (document.getElementById('lsc-loc-admin')) return;
+  /* Open the Locations management modal */
+  function showLocModal() {
     if (getRole() !== 'admin') return;
-    if (!contentArea) return;
 
-    var panel = document.createElement('div');
-    panel.id = 'lsc-loc-admin';
-    panel.style.cssText =
-      'background:#fff;border-radius:16px;border:1.5px solid #E2E8F0;' +
-      'overflow:hidden;font-family:system-ui,-apple-system,sans-serif;' +
-      'box-shadow:0 2px 12px rgba(0,0,0,.06);';
-    panel.innerHTML =
-      '<div style="background:#1E293B;color:#fff;padding:16px 20px;' +
-        'display:flex;align-items:center;gap:12px;">' +
-        '<span style="font-size:20px;">📍</span>' +
-        '<div>' +
-          '<div style="font-size:15px;font-weight:700;letter-spacing:-.01em;">Location Management</div>' +
-          '<div style="font-size:11px;color:rgba(255,255,255,.6);margin-top:2px;">' +
-            'Add or remove locations available in the laundry submission form' +
-          '</div>' +
-        '</div>' +
-      '</div>' +
-      '<div style="padding:20px;">' +
-        '<div style="display:flex;gap:10px;margin-bottom:18px;">' +
-          '<input id="lsc-loc-inp" placeholder="e.g. New Male Accommodation, Manager Office…" ' +
-            'style="flex:1;border:1.5px solid #CBD5E1;border-radius:10px;padding:10px 14px;' +
-            'font-size:13px;font-family:inherit;outline:none;transition:border-color .2s;" />' +
-          '<button id="lsc-loc-add" style="padding:10px 20px;background:#2563EB;color:#fff;' +
-            'border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;' +
-            'white-space:nowrap;flex-shrink:0;transition:opacity .2s;">+ Add Location</button>' +
-        '</div>' +
-        '<div id="lsc-loc-list" style="display:flex;flex-wrap:wrap;gap:8px;min-height:42px;">' +
-          '<span style="color:#94A3B8;font-size:13px;line-height:42px;">Loading…</span>' +
-        '</div>' +
-      '</div>';
+    /* Build a standard modal shell */
+    var shell = mkModal('📍 Location Management', false);
+    shell.md.id = 'lsc-loc-modal';
 
-    contentArea.prepend(panel);
+    var body = document.createElement('div');
+    body.className = 'lsc-body';
+    body.style.maxHeight = '70vh';
 
-    /* ── Load locations ────────────────────────────────────────── */
+    /* Description */
+    var desc = document.createElement('p');
+    desc.style.cssText = 'margin:0 0 16px;font-size:13px;color:#475569;line-height:1.6;';
+    desc.textContent = 'Add or remove locations that employees can select when submitting laundry. Changes take effect immediately in the submission form.';
+    body.appendChild(desc);
+
+    /* Add row */
+    var addRow = document.createElement('div');
+    addRow.style.cssText = 'display:flex;gap:8px;margin-bottom:18px;';
+    addRow.innerHTML =
+      '<input id="lsc-loc-inp" type="text" class="lsc-inp" ' +
+        'placeholder="Enter location name…" maxlength="100" autocomplete="off" ' +
+        'style="flex:1;" />' +
+      '<button id="lsc-loc-add" class="lsc-btn" ' +
+        'style="background:#2563EB;color:#fff;flex:0 0 auto;white-space:nowrap;' +
+        'padding:11px 18px;font-size:13px;">+ Add</button>';
+    body.appendChild(addRow);
+
+    /* List */
+    var listWrap = document.createElement('div');
+    listWrap.id = 'lsc-loc-list';
+    listWrap.style.cssText =
+      'display:flex;flex-direction:column;gap:0;' +
+      'border:1.5px solid #E2E8F0;border-radius:12px;overflow:hidden;';
+    listWrap.innerHTML =
+      '<div style="padding:14px;color:#94A3B8;font-size:13px;text-align:center;">Loading…</div>';
+    body.appendChild(listWrap);
+
+    var foot = document.createElement('div');
+    foot.className = 'lsc-foot';
+    var closeBtn = document.createElement('button');
+    closeBtn.className = 'lsc-btn lsc-cl';
+    closeBtn.type = 'button';
+    closeBtn.textContent = 'Close';
+    closeBtn.addEventListener('click', function() { closeModal(shell.ov); });
+    foot.appendChild(closeBtn);
+
+    shell.md.appendChild(body);
+    shell.md.appendChild(foot);
+    openModalFn(shell.ov);
+
+    /* ── Load locations ──────────────────────────────────────── */
     async function loadLocs() {
-      locCacheTtl = 0; /* bust cache */
+      locCacheTtl = 0;
       var locs = await fetchLocations();
       var list = document.getElementById('lsc-loc-list');
       if (!list) return;
       list.innerHTML = '';
+
       if (!locs.length) {
-        list.innerHTML = '<span style="color:#94A3B8;font-size:13px;padding:4px 0;">No locations yet. Add one above.</span>';
+        list.innerHTML =
+          '<div style="padding:20px;color:#94A3B8;font-size:13px;text-align:center;">' +
+          'No locations yet. Add your first location above.</div>';
         return;
       }
-      locs.forEach(function(loc) {
-        var chip = document.createElement('div');
-        chip.style.cssText =
-          'display:inline-flex;align-items:center;gap:8px;background:#F8FAFC;' +
-          'border:1.5px solid #E2E8F0;border-radius:10px;padding:7px 13px;' +
-          'font-size:13px;font-weight:500;color:#1E293B;';
-        var lbl = document.createElement('span');
-        lbl.textContent = '📍 ' + loc.name;
-        var del = document.createElement('button');
-        del.textContent = '×';
-        del.title = 'Delete "' + loc.name + '"';
-        del.style.cssText =
-          'background:none;border:none;cursor:pointer;color:#94A3B8;' +
-          'font-size:18px;line-height:1;padding:0;font-weight:700;margin-left:2px;' +
-          'transition:color .15s;';
-        del.addEventListener('mouseover',  function(){ this.style.color='#EF4444'; });
-        del.addEventListener('mouseout',   function(){ this.style.color='#94A3B8'; });
-        del.addEventListener('click', async function(e) {
-          e.stopPropagation();
-          if (!confirm('Delete location "' + loc.name + '"?\nEmployees will no longer be able to select this option.')) return;
-          del.disabled = true;
+
+      locs.forEach(function(loc, idx) {
+        var row = document.createElement('div');
+        row.style.cssText =
+          'display:flex;align-items:center;gap:10px;padding:12px 16px;' +
+          'border-bottom:1px solid #F1F5F9;background:' + (idx%2===0?'#fff':'#FAFAFA') + ';';
+
+        var pin = document.createElement('span');
+        pin.textContent = '📍';
+        pin.style.cssText = 'font-size:16px;flex-shrink:0;';
+
+        var name = document.createElement('span');
+        name.textContent = loc.name;
+        name.style.cssText = 'flex:1;font-size:14px;font-weight:500;color:#1E293B;';
+
+        var delBtn = document.createElement('button');
+        delBtn.innerHTML = '🗑 Delete';
+        delBtn.style.cssText =
+          'background:#FEE2E2;color:#991B1B;border:none;border-radius:8px;' +
+          'padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;' +
+          'flex-shrink:0;transition:background .15s;font-family:inherit;';
+        delBtn.addEventListener('mouseover', function(){ this.style.background='#FECACA'; });
+        delBtn.addEventListener('mouseout',  function(){ this.style.background='#FEE2E2'; });
+        delBtn.addEventListener('click', async function() {
+          if (!confirm('Delete "' + loc.name + '"?\n\nEmployees will no longer be able to select this location.')) return;
+          delBtn.disabled = true;
+          delBtn.textContent = 'Deleting…';
           try {
             await apiFetch('/api/locations/' + loc.id, { method: 'DELETE' });
             locCacheTtl = 0;
             loadLocs();
-          } catch(_) { del.disabled = false; }
+          } catch(_) {
+            delBtn.disabled = false;
+            delBtn.innerHTML = '🗑 Delete';
+          }
         });
-        chip.appendChild(lbl);
-        chip.appendChild(del);
-        list.appendChild(chip);
+
+        row.appendChild(pin);
+        row.appendChild(name);
+        row.appendChild(delBtn);
+        list.appendChild(row);
       });
     }
 
     loadLocs();
 
-    /* ── Add handler ───────────────────────────────────────────── */
+    /* ── Add handler ─────────────────────────────────────────── */
     var addBtn = document.getElementById('lsc-loc-add');
     var inp    = document.getElementById('lsc-loc-inp');
 
     addBtn.addEventListener('click', async function() {
       var name = (inp ? inp.value : '').trim();
-      if (!name) { if(inp){ inp.style.borderColor='#EF4444'; inp.focus(); } return; }
+      if (!name) {
+        if (inp) { inp.style.borderColor = '#EF4444'; inp.focus(); }
+        return;
+      }
       inp.style.borderColor = '#CBD5E1';
       addBtn.disabled = true;
       addBtn.textContent = 'Adding…';
@@ -668,16 +680,17 @@
           body: JSON.stringify({ name: name })
         });
         if (res.status === 409) {
-          var err = await res.json();
-          alert(err.error || 'That location already exists.');
+          alert('That location already exists.');
         } else if (res.ok) {
           inp.value = '';
           locCacheTtl = 0;
           loadLocs();
+        } else {
+          alert('Failed to add location. Please try again.');
         }
-      } catch(_) {}
+      } catch(_) { alert('Network error. Please try again.'); }
       addBtn.disabled = false;
-      addBtn.textContent = '+ Add Location';
+      addBtn.textContent = '+ Add';
       inp.focus();
     });
 
@@ -685,28 +698,65 @@
       inp.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') addBtn.click();
       });
-      inp.addEventListener('focus', function(){ this.style.borderColor = '#2563EB'; });
-      inp.addEventListener('blur',  function(){ this.style.borderColor = '#CBD5E1'; });
+      inp.focus();
     }
   }
 
-  /* Global click delegation — detect "Locations" or "Departments" tab clicks */
-  function setupLocTabListener() {
-    if (locPanelListenerAdded) return;
-    locPanelListenerAdded = true;
-    document.addEventListener('click', function(e) {
-      if (getRole() !== 'admin') return;
-      var btn = e.target.closest('button');
-      if (!btn) return;
-      var txt = (btn.textContent || '').trim();
-      if (txt === 'Locations') {
-        var ca = findTabContentArea(btn);
-        setTimeout(function(){ showLocAdminPanel(ca); }, 350);
-      } else if (/^(Users|Departments|Laundry Items|Data Management|Settings|System Health)$/.test(txt)) {
-        hideLocAdminPanel();
-      }
-    }, true);
+  /* Inject a "📍 Locations" button into the admin panel tab bar.
+     We look for the admin tab bar (the row of buttons: Users, Departments…)
+     and append our button to it if not already present. */
+  function injectLocTabButton() {
+    if (!location.pathname.includes('admin')) return;
+    if (getRole() !== 'admin') return;
+    if (document.getElementById('lsc-loc-tab-btn')) return;
+
+    /* Find the tab bar: a container that has buttons "Users" AND "Departments" */
+    var allBtns = Array.prototype.slice.call(document.querySelectorAll('button'));
+    var userBtn = null, deptBtn = null;
+    allBtns.forEach(function(b) {
+      var t = (b.textContent || '').trim();
+      if (t === 'Users') userBtn = b;
+      if (t === 'Departments') deptBtn = b;
+    });
+    if (!userBtn || !deptBtn) return; /* admin panel not rendered yet */
+
+    /* The tab bar is the shared parent of these two buttons */
+    var tabBar = userBtn.parentElement;
+    if (!tabBar || !tabBar.contains(deptBtn)) {
+      /* Try one level up */
+      tabBar = userBtn.parentElement && userBtn.parentElement.parentElement;
+      if (!tabBar || !tabBar.contains(deptBtn)) return;
+    }
+
+    /* Clone the style from the Departments button so ours looks identical */
+    var refBtn = deptBtn;
+    var locBtn = document.createElement('button');
+    locBtn.id = 'lsc-loc-tab-btn';
+    locBtn.type = 'button';
+
+    /* Copy base classes but strip active/selected classes */
+    var baseClass = (refBtn.className || '')
+      .replace(/\bbg-(?:blue|indigo|primary)\S*/g, '')
+      .replace(/\btext-white\b/g, '')
+      .replace(/\bborder-(?:blue|indigo|primary)\S*/g, '')
+      .trim();
+    locBtn.className = baseClass;
+
+    /* Style it like a normal (inactive) tab */
+    locBtn.style.cssText =
+      'cursor:pointer;display:inline-flex;align-items:center;gap:6px;';
+    locBtn.innerHTML = '<span style="font-size:15px;">📍</span><span>Locations</span>';
+
+    locBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      showLocModal();
+    });
+
+    tabBar.appendChild(locBtn);
   }
+
+  function setupLocTabListener() { /* kept for API compat — logic moved to injectLocTabButton */ }
+  function maybeShowLocPanel()   { /* replaced by injectLocTabButton */ }
 
   /* ── Wire stat cards ────────────────────────────────────────────────────── */
   function wireStatCards() {
@@ -748,14 +798,13 @@
       if (openModal) closeModal(openModal);
       prevPath = path;
       locSelectsWired = new WeakSet(); /* reset so selects get re-wired on new page */
-      hideLocAdminPanel();
     }
 
     if (path.includes('submit')) {
       tryOverrideLocationSelects();
     }
     wireStatCards();
-    setupLocTabListener(); /* one-time: attach capture listener for admin tab clicks */
+    injectLocTabButton(); /* inject "Locations" button into admin tab bar */
   }, 600);
 
   new MutationObserver(function() {
@@ -764,7 +813,8 @@
       tryOverrideLocationSelects();
     }
     wireStatCards();
+    injectLocTabButton();
   }).observe(document.body, { childList: true, subtree: true });
 
-  console.log('[LSC v3.2.1] Loaded ✓');
+  console.log('[LSC v3.2.2] Loaded ✓');
 })();
