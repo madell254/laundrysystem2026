@@ -1,7 +1,6 @@
 /* ─────────────────────────────────────────────────────────────────────────
-   Al Bateen Beach Palace — Laundry Management System  v3.2.0
+   Al Bateen Beach Palace — Laundry Management System  v3.2.1
    ─ Remarks modal when staff marks laundry "Ready"
-   ─ Delivery Location (optional free-text) appended below the submit form
    ─ Location * dropdown on submit form populated from /api/locations (admin-managed)
    ─ Clickable stat cards (admin/staff) → records modal: year/month filter + PDF
    ─ Admin panel "Locations" tab → add / delete location options
@@ -42,7 +41,6 @@
   }
 
   /* ── Shared state ─────────────────────────────────────────────────────── */
-  var deliveryLocation = '';
   var statCards = new WeakSet();
   var openModal = null;
   var prevPath = location.pathname;
@@ -96,13 +94,6 @@
     'box-shadow:0 0 0 3px rgba(37,99,235,.12);}',
     '.lsc-ta{resize:vertical;min-height:76px;}',
     '.lsc-hint{font-size:12px;color:#94A3B8;margin-top:5px;line-height:1.5;}',
-    /* Delivery location section in submit form */
-    '.lsc-dl-box{background:#fff;border-radius:14px;border:1.5px solid #E2E8F0;',
-    'overflow:hidden;margin-bottom:16px;}',
-    '.lsc-dl-hdr{background:#F8FAFC;border-bottom:1.5px solid #E2E8F0;',
-    'padding:11px 16px;display:flex;align-items:center;gap:8px;}',
-    '.lsc-dl-hdr-txt{font-size:13px;font-weight:700;color:#1E293B;}',
-    '.lsc-dl-body{padding:16px;}',
     /* Stats modal */
     '.lsc-pills{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:14px;}',
     '.lsc-pill{background:#F1F5F9;border-radius:20px;padding:5px 13px;',
@@ -251,78 +242,8 @@
   }
 
   /* ════════════════════════════════════════════════════════════════════════
-     FEATURE 2 — Delivery Location optional field on Submit page
-     The original Location dropdown is left exactly as-is.
-     We only add an optional "Delivery Location" text input at the bottom.
-     ════════════════════════════════════════════════════════════════════════ */
-  function injectDeliveryField(anchorEl) {
-    if (document.getElementById('lsc-dl-box')) return;
-
-    var box = document.createElement('div');
-    box.id = 'lsc-dl-box';
-    box.className = 'lsc-dl-box';
-    box.innerHTML =
-      '<div class="lsc-dl-hdr">' +
-      '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#2563EB" ' +
-      'stroke-width="2.5" style="flex-shrink:0"><path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z"/>' +
-      '<circle cx="12" cy="10" r="3"/></svg>' +
-      '<span class="lsc-dl-hdr-txt">Delivery Location</span>' +
-      '<span style="font-size:11px;color:#94A3B8;font-weight:400;margin-left:6px;">— optional</span>' +
-      '</div>' +
-      '<div class="lsc-dl-body">' +
-      '<div class="lsc-fld" style="margin-bottom:0;">' +
-      '<input id="lsc-dl-inp" class="lsc-inp" type="text" ' +
-      'placeholder="e.g. Manager\'s Office, same room, Floor 3, Reception…" ' +
-      'autocomplete="off" maxlength="200" />' +
-      '<p class="lsc-hint">Leave blank — by default your finished laundry is collected from the laundry room.</p>' +
-      '</div>' +
-      '</div>';
-
-    anchorEl.before(box);
-
-    var inp = document.getElementById('lsc-dl-inp');
-    if (inp) {
-      if (deliveryLocation) inp.value = deliveryLocation;
-      inp.addEventListener('input', function() { deliveryLocation = this.value; });
-    }
-  }
-
-  function tryInjectDeliveryField() {
-    if (document.getElementById('lsc-dl-box')) return;
-    if (!location.pathname.includes('submit')) return;
-
-    /* Find the Notes textarea card and inject before it */
-    var textareas = Array.prototype.slice.call(document.querySelectorAll('textarea'));
-    var notesTa = null;
-    for (var i = 0; i < textareas.length; i++) {
-      if (/additional|special|note|instruct/i.test(textareas[i].placeholder || '')) {
-        notesTa = textareas[i]; break;
-      }
-    }
-    if (notesTa) {
-      var card = notesTa.closest('.bg-white') ||
-                 notesTa.closest('[class*="rounded"]') ||
-                 notesTa.parentElement && notesTa.parentElement.parentElement;
-      if (card) { injectDeliveryField(card); return; }
-    }
-
-    /* Fallback: inject before the submit button's card */
-    var btns = Array.prototype.slice.call(document.querySelectorAll('button'));
-    for (var j = 0; j < btns.length; j++) {
-      if (/submit laundry/i.test(btns[j].textContent || '')) {
-        var bcard = btns[j].closest('.bg-white') ||
-                    btns[j].closest('[class*="rounded"]') ||
-                    btns[j].parentElement;
-        if (bcard) { injectDeliveryField(bcard); return; }
-      }
-    }
-  }
-
-  /* ════════════════════════════════════════════════════════════════════════
-     FEATURE 3 — Fetch interceptor
+     FEATURE 2 — Fetch interceptor
      • PATCH /status → show remarks modal on "ready"
-     • POST /api/laundry → append deliveryLocation if provided
-     • GET /api/laundry → cache staffNote + deliveryLocation for badges
      ════════════════════════════════════════════════════════════════════════ */
   var _origFetch = window.fetch.bind(window);
 
@@ -343,17 +264,6 @@
           if (result) body.staffNote = result;
           init = Object.assign({}, init, { body: JSON.stringify(body) });
         }
-      } catch(_) {}
-    }
-
-    /* Add deliveryLocation on laundry submit */
-    if (init && init.method === 'POST' &&
-        /\/api\/laundry(\?|$)/.test(url) && init.body) {
-      try {
-        var sb = JSON.parse(init.body);
-        var dl = (deliveryLocation || '').trim();
-        if (dl) sb.deliveryLocation = dl;
-        init = Object.assign({}, init, { body: JSON.stringify(sb) });
       } catch(_) {}
     }
 
@@ -430,11 +340,11 @@
       '<table class="lsc-tbl">' +
       '<thead><tr>' +
       '<th>#</th><th>Record ID</th><th>Employee</th>' +
-      '<th>Location</th><th>Deliver To</th>' +
+      '<th>Location</th>' +
       '<th>Items</th><th>Status</th><th>Date</th><th>Staff Note</th>' +
       '</tr></thead>' +
       '<tbody id="lsc-sm-body">' +
-      '<tr><td colspan="9" style="text-align:center;padding:28px;color:#94A3B8;">Loading…</td></tr>' +
+      '<tr><td colspan="8" style="text-align:center;padding:28px;color:#94A3B8;">Loading…</td></tr>' +
       '</tbody></table>';
 
     body.appendChild(frow);
@@ -475,7 +385,7 @@
       var tbody = document.getElementById('lsc-sm-body');
       var pillsEl = document.getElementById('lsc-sm-pills');
       if (!tbody) return;
-      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:28px;color:#94A3B8;">Loading…</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:28px;color:#94A3B8;">Loading…</td></tr>';
       if (pillsEl) pillsEl.innerHTML = '';
 
       var recs = await fetchRecs(range.from, range.to);
@@ -492,7 +402,7 @@
       }
 
       if (!recs.length) {
-        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:32px;color:#94A3B8;">No records found for this period.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:32px;color:#94A3B8;">No records found for this period.</td></tr>';
         return;
       }
 
@@ -502,7 +412,6 @@
           '<td style="font-family:monospace;font-size:11.5px;white-space:nowrap;">'+esc(r.recordId)+'</td>' +
           '<td>'+esc(r.employeeName||'—')+'<div style="color:#94A3B8;font-size:11px;">'+esc(r.employeeCode||'')+'</div></td>' +
           '<td style="font-size:12px;max-width:130px;">'+esc(r.location||'—')+'</td>' +
-          '<td style="font-size:12px;max-width:120px;">'+esc(r.deliveryLocation||'—')+'</td>' +
           '<td style="text-align:center;font-weight:700;">'+(r.totalItems||0)+'</td>' +
           '<td>'+sBadge(r.status)+'</td>' +
           '<td style="font-size:11.5px;white-space:nowrap;">'+fmtDate(r.submittedAt)+'</td>' +
@@ -537,7 +446,6 @@
         '<th style="padding:7px 8px;text-align:left;">Record ID</th>' +
         '<th style="padding:7px 8px;text-align:left;">Employee</th>' +
         '<th style="padding:7px 8px;text-align:left;">Location</th>' +
-        '<th style="padding:7px 8px;text-align:left;">Deliver To</th>' +
         '<th style="padding:7px 8px;text-align:center;">Items</th>' +
         '<th style="padding:7px 8px;text-align:left;">Status</th>' +
         '<th style="padding:7px 8px;text-align:left;">Date</th>' +
@@ -844,10 +752,7 @@
     }
 
     if (path.includes('submit')) {
-      tryInjectDeliveryField();
       tryOverrideLocationSelects();
-    } else {
-      deliveryLocation = '';
     }
     wireStatCards();
     setupLocTabListener(); /* one-time: attach capture listener for admin tab clicks */
@@ -856,11 +761,10 @@
   new MutationObserver(function() {
     var path = location.pathname;
     if (path.includes('submit')) {
-      tryInjectDeliveryField();
       tryOverrideLocationSelects();
     }
     wireStatCards();
   }).observe(document.body, { childList: true, subtree: true });
 
-  console.log('[LSC v3.2.0] Loaded ✓');
+  console.log('[LSC v3.2.1] Loaded ✓');
 })();
