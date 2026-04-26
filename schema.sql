@@ -102,3 +102,21 @@ CREATE TABLE IF NOT EXISTS delivery_locations (
 );
 
 ALTER TABLE laundry ADD COLUMN IF NOT EXISTS delivery_location TEXT;
+
+-- v3.2: managed locations for the Location * dropdown on the submit form
+CREATE TABLE IF NOT EXISTS locations (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+-- Seed with defaults if empty
+INSERT INTO locations (name, sort_order)
+SELECT name, sort_order FROM (VALUES
+  ('New Male Accommodation', 1),
+  ('Female Accommodation', 2),
+  ('Camp D', 3),
+  ('Tower A', 4),
+  ('Tower B', 5)
+) AS v(name, sort_order)
+WHERE NOT EXISTS (SELECT 1 FROM locations LIMIT 1);

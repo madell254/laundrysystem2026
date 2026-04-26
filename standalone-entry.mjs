@@ -86035,6 +86035,40 @@ router_dl.delete("/delivery-locations/:id", requireAuth, requireRole("admin"), a
   await db.delete(deliveryLocationsTable).where(eq(deliveryLocationsTable.id, id));
   res.json({ success: true });
 });
+
+var locationsTable = pgTable("locations", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+});
+var router_loc = (0, import_express11.Router)();
+router_loc.get("/locations", requireAuth, async (_req, res) => {
+  try {
+    const locs = await db.select().from(locationsTable).orderBy(locationsTable.sortOrder, locationsTable.name);
+    res.json(locs);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+router_loc.post("/locations", requireAuth, requireRole("admin"), async (req, res) => {
+  const name = (req.body?.name || "").trim();
+  if (!name) return res.status(400).json({ error: "Name is required" });
+  try {
+    const [loc] = await db.insert(locationsTable).values({ name }).returning();
+    res.status(201).json(loc);
+  } catch (e) {
+    const msg = e.message || "";
+    if (msg.includes("23505") || msg.includes("unique")) {
+      return res.status(409).json({ error: "A location with that name already exists." });
+    }
+    res.status(500).json({ error: e.message });
+  }
+});
+router_loc.delete("/locations/:id", requireAuth, requireRole("admin"), async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) return res.status(400).json({ error: "Invalid ID" });
+  await db.delete(locationsTable).where(eq(locationsTable.id, id));
+  res.json({ success: true });
+});
 var router11 = (0, import_express11.Router)();
 router11.use(health_default);
 router11.use(auth_default);
@@ -86047,6 +86081,7 @@ router11.use(notifications_default);
 router11.use(storage_default);
 router11.use(settings_default);
 router11.use(router_dl);
+router11.use(router_loc);
 var routes_default = router11;
 
 // src/lib/logger.ts
