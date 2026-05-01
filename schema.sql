@@ -120,3 +120,20 @@ SELECT name, sort_order FROM (VALUES
   ('Tower B', 5)
 ) AS v(name, sort_order)
 WHERE NOT EXISTS (SELECT 1 FROM locations LIMIT 1);
+
+-- ── v3.4: Audit log ──────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS audit_log (
+  id          SERIAL PRIMARY KEY,
+  user_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  action      TEXT NOT NULL,
+  target_id   TEXT,
+  detail      TEXT,
+  ip_address  TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS audit_log_user_idx   ON audit_log (user_id);
+CREATE INDEX IF NOT EXISTS audit_log_action_idx ON audit_log (action);
+CREATE INDEX IF NOT EXISTS audit_log_time_idx   ON audit_log (created_at);
+
+-- Ensure users table has email column
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT;
